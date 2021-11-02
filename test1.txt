@@ -1,0 +1,45 @@
+class tca_Upload_CSM_Logs(Logging_TestFixture):
+    REQ_ID = "BCP-86407" 
+    DEV_OBJ = "CS5" 
+    STATUS = "design" #possible values: "desing/ready"; describes the implementation status of the TC
+    PRIORITY = "Blocker" #possible values: Minor, Major, Blocker; describes the Priority field for the issue type "Test"
+    TC_CLASSIFICATION = "Positive" #possible values: "Positive, Negative"; will be synced as well in Jira as a label to the issue type "Test"
+
+ 
+    def setUp(self):
+        logger.info("setUp")
+        self.press_sst_button(time_s=1)
+        self.check_press_sst_button(time_s=1)
+        sleep(20)
+
+    def test_execute(self):
+        logger.info("test_execute")
+        today = date.today()
+        self.odm_rmp_controller.execute_command(command='GET_SDCARD_LOGS',trigger='{"vin": "WBA5F31030H012307", "commandId": 1, "start_date_time": "today.strftime("%Y-%d-%b") 00:00:00", "end_date_time": "today.strftime("%Y-%d-%b") 23:59:00"}')
+        # check the actionCompleted event sent with result : SUCCESS
+        self.check_actionCompletedEvent_sent_BE(action="GET_SDCARD_LOGS",result="SUCCESS")
+        # Check CSM response on startUpload request
+        startUpload_response = self.someip_manager.get_filtered_queue("BCP21_AP", method_id=self.startUpload)[0].payload
+        self.expectTrue(len(startUpload_response) == 2, severity=Severity.MAJOR,
+                        msg="CSM is not sending response on startUpload request")
+        sleep(10)
+        http_upload_notifs = self.someip_manager.get_filtered_queue("BCP21_AP", method_id=self.transferStatusList)
+        http_upload_pending = http_upload_notifs[1].payload
+        component_info = self.someip_controller.deserialize_someip_payload(payload=http_upload_pending,members_list=self.component_info_members_list)
+        print("deseerilize is ",component_info)
+        # Check http_upload Pending
+        http_upload_pending = self.someip_manager.get_filtered_queue("BCP21_AP", method_id=self.transferStatusList)[1].payload
+        print(http_upload_pending)
+        direction = http_upload_pending[7]
+        self.expectTrue(direction == 0 and http_upload_pending[8] == 1,
+                       severity=Severity.MAJOR, msg="HTTP_DOWNLOAD Pending is not send from the CSM")
+        # Check tftp_download Pending
+        http_upload_finish = http_upload_notifs[2].payload
+        print(http_upload_finish)
+        self.expectTrue(http_upload_finish[7] == 0 and http_upload_finish[8] == 3,
+                       severity=Severity.MAJOR, msg="HTTP_DOWNLOAD Finished is not send from the CSM")
+     
+    def tearDown(self):
+        logger.info("tearDown")
+        self.stop_tcp_listener()
+        self.sd_checker = None
